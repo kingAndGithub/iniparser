@@ -2,8 +2,9 @@
 /**
    @file    dictionary.c
    @author  N. Devillard
-   @date    Sep 2007
-   @version $Revision: 1.27 $
+   @author  M. Brossard
+   @date    Apr 2011
+   @version 3.1
    @brief   Implements a dictionary for string variables.
 
    This module implements a simple dictionary object, i.e. a list
@@ -12,10 +13,6 @@
 */
 /*--------------------------------------------------------------------------*/
 
-/*
-    $Id: dictionary.c,v 1.27 2007-11-23 21:39:18 ndevilla Exp $
-    $Revision: 1.27 $
-*/
 /*---------------------------------------------------------------------------
                                 Includes
  ---------------------------------------------------------------------------*/
@@ -25,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdint.h>
 
 /** Maximum value size for integers and doubles. */
 #define MAXVALSZ    1024
@@ -76,6 +74,60 @@ static char * xstrdup(char * s)
     return t ;
 }
 
+#define hash_size(s) ((s) + ((s) >> 1))
+#define hash_freed ((void *)1)
+
+__inline__ static unsigned hash_first(dictionary *d, unsigned h)
+{
+       return h % hash_size(d->size);
+}
+
+__inline__ static unsigned hash_next(dictionary *d, unsigned i)
+{
+       return ((i + 1) == hash_size(d->size)) ? 0 : i + 1;
+}
+
+__inline__ static hash_t * hash_get(dictionary * d, char * key, unsigned hash)
+{
+    unsigned    i ;
+
+    for(i = hash_first(d, hash); d->h[i].e; i = hash_next(d, i)) {
+        if((d->h[i].e != hash_freed) && (d->h[i].h == hash) &&
+           (strcmp(d->h[i].e->key, key) == 0)) {
+            return &(d->h[i]);
+        }
+    }
+
+    return NULL ;
+}
+
+__inline__ static void hash_set(dictionary * d, unsigned hash, entry_t * e)
+{
+    unsigned    i ;
+
+    for(i = hash_first(d, hash); d->h[i].e && (d->h[i].e != hash_freed) ; ) {
+        i = hash_next(d, i);
+    }
+    d->h[i].e = e;
+    d->h[i].h = hash;
+}
+
+__inline__ static void free_val(dictionary *d, void *v)
+{
+    if(v && d ) {
+        if(d->dict) {
+            dictionary_del(v);
+        } else {
+            free(v);
+        }
+    }
+}
+
+__inline__ static void * dup_val(dictionary *d, void *v)
+{
+    return (v && d) ? (d->dict ? v : xstrdup(v)) : NULL;
+}
+
 /*---------------------------------------------------------------------------
                             Function codes
  ---------------------------------------------------------------------------*/
@@ -91,22 +143,10 @@ static char * xstrdup(char * s)
   by comparing the key itself in last resort.
  */
 /*--------------------------------------------------------------------------*/
+uint32_t SuperFastHash(const char *k, int l);
 unsigned dictionary_hash(char * key)
 {
-    int         len ;
-    unsigned    hash ;
-    int         i ;
-
-    len = strlen(key);
-    for (hash=0, i=0 ; i<len ; i++) {
-        hash += (unsigned)key[i] ;
-        hash += (hash<<10);
-        hash ^= (hash>>6) ;
-    }
-    hash += (hash <<3);
-    hash ^= (hash >>11);
-    hash += (hash <<15);
-    return hash ;
+    return SuperFastHash(key, strlen(key));
 }
 
 /*-------------------------------------------------------------------------*/
@@ -131,10 +171,29 @@ dictionary * dictionary_new(int size)
         return NULL;
     }
     d->size = size ;
-    d->val  = (char **)calloc(size, sizeof(char*));
-    d->key  = (char **)calloc(size, sizeof(char*));
-    d->hash = (unsigned int *)calloc(size, sizeof(unsigned));
+    d->e = (entry_t *)calloc(size, sizeof(entry_t));
+    d->h = (hash_t *)calloc(hash_size(size), sizeof(hash_t));
     return d ;
+}
+
+/*-------------------------------------------------------------------------*/
+/**
+  @brief    Defines storage policy for values.
+  @param    d     dictionary object to modify.
+  @param    dict  policy
+  @return   void
+
+  If pointer is set to 0 values are expected to be strings that will
+  be duplicated when stored and freed by dictionary functions. If
+  pointer is set to a non-zero value, values are treated as pointers
+  to dictionary objects.
+ */
+/*--------------------------------------------------------------------------*/
+void dictionary_policy(dictionary * d, int dict)
+{
+    if(d) {
+        d->dict = dict ? 1 : 0
+    }
 }
 
 /*-------------------------------------------------------------------------*/
@@ -148,18 +207,17 @@ dictionary * dictionary_new(int size)
 /*--------------------------------------------------------------------------*/
 void dictionary_del(dictionary * d)
 {
-    int     i ;
+    unsigned     i ;
 
     if (d==NULL) return ;
     for (i=0 ; i<d->size ; i++) {
-        if (d->key[i]!=NULL)
-            free(d->key[i]);
-        if (d->val[i]!=NULL)
-            free(d->val[i]);
+        if (d->e[i].key != NULL) {
+            free(d->e[i].key);
+            free_val(d, d->e[i].val);
+        }
     }
-    free(d->val);
-    free(d->key);
-    free(d->hash);
+    free(d->e);
+    free(d->h);
     free(d);
     return ;
 }
@@ -178,24 +236,17 @@ void dictionary_del(dictionary * d)
   dictionary object, you should not try to free it or modify it.
  */
 /*--------------------------------------------------------------------------*/
-char * dictionary_get(dictionary * d, char * key, char * def)
+void * dictionary_get(dictionary * d, char * key, void * def)
 {
     unsigned    hash ;
-    int         i ;
+    hash_t    * match ;
+
+    if (d==NULL || key==NULL) return def ;
 
     hash = dictionary_hash(key);
-    for (i=0 ; i<d->size ; i++) {
-        if (d->key[i]==NULL)
-            continue ;
-        /* Compare hash */
-        if (hash==d->hash[i]) {
-            /* Compare string, to avoid hash collisions */
-            if (!strcmp(key, d->key[i])) {
-                return d->val[i] ;
-            }
-        }
-    }
-    return def ;
+    match = hash_get(d, key, hash);
+
+    return (match && match->e && match->e->val) ? match->e->val : def ;
 }
 
 /*-------------------------------------------------------------------------*/
@@ -224,46 +275,45 @@ char * dictionary_get(dictionary * d, char * key, char * def)
   This function returns non-zero in case of failure.
  */
 /*--------------------------------------------------------------------------*/
-int dictionary_set(dictionary * d, char * key, char * val)
+int dictionary_set(dictionary * d, char * key, void * val)
 {
-    int         i ;
-    unsigned    hash ;
+    unsigned    hash, i ;
+    hash_t    * h ;
 
     if (d==NULL || key==NULL) return -1 ;
     
     /* Compute hash for this key */
-    hash = dictionary_hash(key) ;
+    hash = dictionary_hash(key);
     /* Find if value is already in dictionary */
-    if (d->n>0) {
-        for (i=0 ; i<d->size ; i++) {
-            if (d->key[i]==NULL)
-                continue ;
-            if (hash==d->hash[i]) { /* Same hash value */
-                if (!strcmp(key, d->key[i])) {   /* Same key */
-                    /* Found a value: modify and return */
-                    if (d->val[i]!=NULL)
-                        free(d->val[i]);
-                    d->val[i] = val ? xstrdup(val) : NULL ;
-                    /* Value has been modified: return */
-                    return 0 ;
-                }
-            }
-        }
+    if((h = hash_get(d, key, hash)) != NULL) {
+        free_val(d, h->e->val);
+        h->e->val = dup_val(d, val);
+        return 0;
     }
+
     /* Add a new value */
     /* See if dictionary needs to grow */
     if (d->n==d->size) {
 
         /* Reached maximum size: reallocate dictionary */
-        d->val  = (char **)mem_double(d->val,  d->size * sizeof(char*)) ;
-        d->key  = (char **)mem_double(d->key,  d->size * sizeof(char*)) ;
-        d->hash = (unsigned int *)mem_double(d->hash, d->size * sizeof(unsigned)) ;
-        if ((d->val==NULL) || (d->key==NULL) || (d->hash==NULL)) {
+        d->e = (entry_t *)mem_double(d->e, d->size * sizeof(entry_t)) ;
+        free(d->h);
+        d->h = (hash_t *)calloc(hash_size(d->size * 2), sizeof(hash_t)) ;
+
+        if ((d->e == NULL) || (d->h == NULL)) {
             /* Cannot grow dictionary */
             return -1 ;
         }
+
         /* Double size */
         d->size *= 2 ;
+
+        /* Recompute all hashes */
+        for(i = 0 ; i < d->size / 2 ; i++) {
+            if(d->e[i].key) {
+                hash_set(d, dictionary_hash(d->e[i].key), &(d->e[i]));
+            }
+        }
     }
 
     /* Insert key in the first empty slot. Start at d->n and wrap at
@@ -272,10 +322,12 @@ int dictionary_set(dictionary * d, char * key, char * val)
     for (i=d->n ; d->key[i] ; ) {
         if(++i == d->size) i = 0;
     }
+
     /* Copy key */
-    d->key[i]  = xstrdup(key);
-    d->val[i]  = val ? xstrdup(val) : NULL ;
-    d->hash[i] = hash;
+    d->e[i].key = xstrdup(key);
+    d->e[i].val = dup_val(d, val);
+    hash_set(d, hash, &(d->e[i]));
+
     d->n ++ ;
     return 0 ;
 }
@@ -294,36 +346,26 @@ int dictionary_set(dictionary * d, char * key, char * val)
 void dictionary_unset(dictionary * d, char * key)
 {
     unsigned    hash ;
-    int         i ;
+    hash_t    * h ;
 
-    if (key == NULL) {
-        return;
-    }
+    if (d==NULL || key==NULL) return ;
 
     hash = dictionary_hash(key);
-    for (i=0 ; i<d->size ; i++) {
-        if (d->key[i]==NULL)
-            continue ;
-        /* Compare hash */
-        if (hash==d->hash[i]) {
-            /* Compare string, to avoid hash collisions */
-            if (!strcmp(key, d->key[i])) {
-                /* Found key */
-                break ;
-            }
-        }
-    }
-    if (i>=d->size)
+    if((h = hash_get(d, key, hash)) != NULL) {
         /* Key not found */
         return ;
-
-    free(d->key[i]);
-    d->key[i] = NULL ;
-    if (d->val[i]!=NULL) {
-        free(d->val[i]);
-        d->val[i] = NULL ;
     }
-    d->hash[i] = 0 ;
+ 
+    if(h->e) {
+        free(h->e->key);
+        h->e->key = NULL;
+        free_val(d, h->e->val);
+        h->e->val = NULL;
+    }
+
+    /* Lazy deletion */
+    h->e = hash_freed;
+    h->h = 0;
     d->n -- ;
     return ;
 }
@@ -337,7 +379,7 @@ void dictionary_unset(dictionary * d, char * key)
 
   Dumps a dictionary onto an opened file pointer. Key pairs are printed out
   as @c [Key]=[Value], one per line. It is Ok to provide stdout or stderr as
-  output file pointers.
+  output file pointers. Only works with dictionaries with string values.
  */
 /*--------------------------------------------------------------------------*/
 void dictionary_dump(dictionary * d, FILE * out)
@@ -349,11 +391,15 @@ void dictionary_dump(dictionary * d, FILE * out)
         fprintf(out, "empty dictionary\n");
         return ;
     }
+    if (d->dict) {
+        fprintf(out, "invalid dictionary\n");
+        return ;
+    }
     for (i=0 ; i<d->size ; i++) {
-        if (d->key[i]) {
+        if (d->e[i].key) {
             fprintf(out, "%20s\t[%s]\n",
-                    d->key[i],
-                    d->val[i] ? d->val[i] : "UNDEF");
+                    d->e[i].key,
+                    d->e[i].val ? (char *)d->e[i].val : "UNDEF");
         }
     }
     return ;
@@ -401,4 +447,66 @@ int main(int argc, char *argv[])
     return 0 ;
 }
 #endif
+
+/*
+ * SuperFastHash by Paul Hsieh : http://www.azillionmonkeys.com/qed/hash.html
+ * Public domain version http://burtleburtle.net/bob/hash/doobs.html
+ */
+
+#undef get16bits
+#if (defined(__GNUC__) && defined(__i386__)) || defined(__WATCOMC__) \
+  || defined(_MSC_VER) || defined (__BORLANDC__) || defined (__TURBOC__)
+#define get16bits(d) (*((const uint16_t *) (d)))
+#endif
+
+#if !defined (get16bits)
+#define get16bits(d) ((((const uint8_t *)(d))[1] << UINT32_C(8))\
+                      +((const uint8_t *)(d))[0])
+#endif
+
+uint32_t SuperFastHash (const char * data, int len) {
+    uint32_t hash = len, tmp;
+    int rem;
+
+    if (len <= 0 || data == NULL) return 0;
+
+    rem = len & 3;
+    len >>= 2;
+
+    /* Main loop */
+    for (;len > 0; len--) {
+        hash  += get16bits (data);
+        tmp    = (get16bits (data+2) << 11) ^ hash;
+        hash   = (hash << 16) ^ tmp;
+        data  += 2*sizeof (uint16_t);
+        hash  += hash >> 11;
+    }
+
+    /* Handle end cases */
+    switch (rem) {
+        case 3: hash += get16bits (data);
+                hash ^= hash << 16;
+                hash ^= data[sizeof (uint16_t)] << 18;
+                hash += hash >> 11;
+                break;
+        case 2: hash += get16bits (data);
+                hash ^= hash << 11;
+                hash += hash >> 17;
+                break;
+        case 1: hash += *data;
+                hash ^= hash << 10;
+                hash += hash >> 1;
+    }
+
+    /* Force "avalanching" of final 127 bits */
+    hash ^= hash << 3;
+    hash += hash >> 5;
+    hash ^= hash << 4;
+    hash += hash >> 17;
+    hash ^= hash << 25;
+    hash += hash >> 6;
+
+    return hash;
+}
+
 /* vim: set ts=4 et sw=4 tw=75 */

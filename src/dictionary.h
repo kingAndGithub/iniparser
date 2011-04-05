@@ -3,8 +3,9 @@
 /**
    @file    dictionary.h
    @author  N. Devillard
-   @date    Sep 2007
-   @version $Revision: 1.12 $
+   @author  M. Brossard
+   @date    Apr 2011
+   @version 3.1
    @brief   Implements a dictionary for string variables.
 
    This module implements a simple dictionary object, i.e. a list
@@ -12,13 +13,6 @@
    informations retrieved from a configuration file (ini files).
 */
 /*--------------------------------------------------------------------------*/
-
-/*
-    $Id: dictionary.h,v 1.12 2007-11-23 21:37:00 ndevilla Exp $
-    $Author: ndevilla $
-    $Date: 2007-11-23 21:37:00 $
-    $Revision: 1.12 $
-*/
 
 #ifndef _DICTIONARY_H_
 #define _DICTIONARY_H_
@@ -39,20 +33,46 @@
 
 /*-------------------------------------------------------------------------*/
 /**
+  @brief    Dictionary entry
+
+  This object contains a string/pointer pair.
+ */
+/*-------------------------------------------------------------------------*/
+
+typedef struct {
+    char        *  key;  /** String containing the key */
+    void        *  val;  /** Pointer to the value */
+} entry_t;
+
+/*-------------------------------------------------------------------------*/
+/**
+  @brief    Hash entry
+
+  This object is part of an open-addressing hash table.
+ */
+/*-------------------------------------------------------------------------*/
+typedef struct {
+    unsigned       h;   /** Hash value */
+    entry_t     *  e;   /** Pointer to matching entry */
+} hash_t;
+
+/*-------------------------------------------------------------------------*/
+/**
   @brief    Dictionary object
 
-  This object contains a list of string/string associations. Each
+  This object contains a list of string/pointer associations. Each
   association is identified by a unique string key. Looking up values
   in the dictionary is speeded up by the use of a (hopefully collision-free)
   hash function.
  */
 /*-------------------------------------------------------------------------*/
-typedef struct _dictionary_ {
+
+typedef struct {
+    entry_t      *  e ;     /** List of elements */
+    hash_t       *  h ;     /** List of hash */
     int             n ;     /** Number of entries in dictionary */
     int             size ;  /** Storage size */
-    char        **  val ;   /** List of string values */
-    char        **  key ;   /** List of string keys */
-    unsigned     *  hash ;  /** List of hash values for keys */
+    int             dict ;  /** Values are dictionaries */
 } dictionary ;
 
 
@@ -89,6 +109,21 @@ dictionary * dictionary_new(int size);
 
 /*-------------------------------------------------------------------------*/
 /**
+  @brief    Defines storage policy for values.
+  @param    d     dictionary object to modify.
+  @param    dict  policy
+  @return   void
+
+  If pointer is set to 0 values are expected to be strings that will
+  be duplicated when stored and freed by dictionary functions. If
+  pointer is set to a non-zero value, values are treated as pointers
+  to dictionary objects.
+ */
+/*--------------------------------------------------------------------------*/
+void dictionary_policy(dictionary * d, int dict);
+
+/*-------------------------------------------------------------------------*/
+/**
   @brief    Delete a dictionary object
   @param    d   dictionary object to deallocate.
   @return   void
@@ -112,8 +147,7 @@ void dictionary_del(dictionary * vd);
   dictionary object, you should not try to free it or modify it.
  */
 /*--------------------------------------------------------------------------*/
-char * dictionary_get(dictionary * d, char * key, char * def);
-
+void * dictionary_get(dictionary * d, char * key, void * def);
 
 /*-------------------------------------------------------------------------*/
 /**
@@ -141,7 +175,7 @@ char * dictionary_get(dictionary * d, char * key, char * def);
   This function returns non-zero in case of failure.
  */
 /*--------------------------------------------------------------------------*/
-int dictionary_set(dictionary * vd, char * key, char * val);
+int dictionary_set(dictionary * vd, char * key, void * val);
 
 /*-------------------------------------------------------------------------*/
 /**
@@ -155,7 +189,6 @@ int dictionary_set(dictionary * vd, char * key, char * val);
  */
 /*--------------------------------------------------------------------------*/
 void dictionary_unset(dictionary * d, char * key);
-
 
 /*-------------------------------------------------------------------------*/
 /**

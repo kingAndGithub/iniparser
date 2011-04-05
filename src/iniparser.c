@@ -3,17 +3,12 @@
 /**
    @file    iniparser.c
    @author  N. Devillard
-   @date    Sep 2007
-   @version 3.0
+   @author  M. Brossard
+   @date    Apr 2011
+   @version 3.1
    @brief   Parser for ini files.
 */
 /*--------------------------------------------------------------------------*/
-/*
-    $Id: iniparser.c,v 2.19 2011-03-02 20:15:13 ndevilla Exp $
-    $Revision: 2.19 $
-    $Date: 2011-03-02 20:15:13 $
-*/
-/*---------------------------- Includes ------------------------------------*/
 #include <ctype.h>
 #include "iniparser.h"
 
@@ -124,9 +119,9 @@ int iniparser_getnsec(dictionary * d)
     if (d==NULL) return -1 ;
     nsec=0 ;
     for (i=0 ; i<d->size ; i++) {
-        if (d->key[i]==NULL)
+        if (d->e[i].key==NULL)
             continue ;
-        if (strchr(d->key[i], ':')==NULL) {
+        if (strchr(d->e[i].key, ':')==NULL) {
             nsec ++ ;
         }
     }
@@ -155,9 +150,9 @@ char * iniparser_getsecname(dictionary * d, int n)
     if (d==NULL || n<0) return NULL ;
     foundsec=0 ;
     for (i=0 ; i<d->size ; i++) {
-        if (d->key[i]==NULL)
+        if (d->e[i].key==NULL)
             continue ;
-        if (strchr(d->key[i], ':')==NULL) {
+        if (strchr(d->e[i].key, ':')==NULL) {
             foundsec++ ;
             if (foundsec>n)
                 break ;
@@ -166,7 +161,7 @@ char * iniparser_getsecname(dictionary * d, int n)
     if (foundsec<=n) {
         return NULL ;
     }
-    return d->key[i] ;
+    return d->e[i].key ;
 }
 
 /*-------------------------------------------------------------------------*/
@@ -188,12 +183,12 @@ void iniparser_dump(dictionary * d, FILE * f)
 
     if (d==NULL || f==NULL) return ;
     for (i=0 ; i<d->size ; i++) {
-        if (d->key[i]==NULL)
+        if (d->e[i].key==NULL)
             continue ;
-        if (d->val[i]!=NULL) {
-            fprintf(f, "[%s]=[%s]\n", d->key[i], d->val[i]);
+        if (d->e[i].val!=NULL) {
+            fprintf(f, "[%s]=[%s]\n", d->e[i].key, (char *)d->e[i].val);
         } else {
-            fprintf(f, "[%s]=UNDEF\n", d->key[i]);
+            fprintf(f, "[%s]=UNDEF\n", d->e[i].key);
         }
     }
     return ;
@@ -224,9 +219,9 @@ void iniparser_dump_ini(dictionary * d, FILE * f)
     if (nsec<1) {
         /* No section in file: dump all keys as they are */
         for (i=0 ; i<d->size ; i++) {
-            if (d->key[i]==NULL)
+            if (d->e[i].key==NULL)
                 continue ;
-            fprintf(f, "%s = %s\n", d->key[i], d->val[i]);
+            fprintf(f, "%s = %s\n", d->e[i].key, (char *)d->e[i].val);
         }
         return ;
     }
@@ -236,13 +231,13 @@ void iniparser_dump_ini(dictionary * d, FILE * f)
         fprintf(f, "\n[%s]\n", secname);
         sprintf(keym, "%s:", secname);
         for (j=0 ; j<d->size ; j++) {
-            if (d->key[j]==NULL)
+            if (d->e[j].key==NULL)
                 continue ;
-            if (!strncmp(d->key[j], keym, seclen+1)) {
+            if (!strncmp(d->e[j].key, keym, seclen+1)) {
                 fprintf(f,
                         "%-30s = %s\n",
-                        d->key[j]+seclen+1,
-                        d->val[j] ? d->val[j] : "");
+                        d->e[j].key+seclen+1,
+                        d->e[j].val ? (char *)d->e[j].val : "");
             }
         }
     }
