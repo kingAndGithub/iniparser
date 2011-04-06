@@ -192,7 +192,7 @@ dictionary * dictionary_new(int size)
 void dictionary_policy(dictionary * d, int dict)
 {
     if(d) {
-        d->dict = dict ? 1 : 0
+        d->dict = dict ? 1 : 0;
     }
 }
 
@@ -319,7 +319,7 @@ int dictionary_set(dictionary * d, char * key, void * val)
     /* Insert key in the first empty slot. Start at d->n and wrap at
        d->size. Because d->n < d->size this will necessarily
        terminate. */
-    for (i=d->n ; d->key[i] ; ) {
+    for (i=d->n ; d->e[i].key ; ) {
         if(++i == d->size) i = 0;
     }
 
