@@ -5,7 +5,7 @@
    @author  N. Devillard
    @author  M. Brossard
    @date    Apr 2011
-   @version 3.1
+   @version 4.0
    @brief   Parser for ini files.
 */
 /*--------------------------------------------------------------------------*/
