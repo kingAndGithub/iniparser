@@ -351,7 +351,7 @@ void dictionary_unset(dictionary * d, char * key)
     if (d==NULL || key==NULL) return ;
 
     hash = dictionary_hash(key);
-    if((h = hash_get(d, key, hash)) != NULL) {
+    if((h = hash_get(d, key, hash)) == NULL) {
         /* Key not found */
         return ;
     }
